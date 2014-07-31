@@ -1,0 +1,7 @@
+
+参照relaybank公司RCD系列产品的web协议
+
+数据和指令均为json格式
+
+其中指令内容包括两部分：resource_route、value（可以不填）
+
