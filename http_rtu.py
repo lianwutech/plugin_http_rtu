@@ -35,7 +35,14 @@ from json import loads, dumps
 
 from libs.utils import *
 
+# 设置系统为utf-8  勿删除
+reload(sys)
+sys.setdefaultencoding('utf-8')
+
 # 全局变量
+# 设备信息字典
+devices_info_dict = dict()
+
 # 切换工作目录
 # 程序运行路径
 procedure_path = cur_file_dir()
@@ -53,13 +60,32 @@ logger.setLevel(logging.DEBUG)
 # 加载配置项
 config = ConfigParser.ConfigParser()
 config.read("./http_rtu.cfg")
-url = config.get('http', 'url')
-url_params = config.get('http', 'params')
 mqtt_server_ip = config.get('mqtt', 'server')
 mqtt_server_port = int(config.get('mqtt', 'port'))
+mqtt_client_id = config.get('mqtt', 'client_id')
 gateway_topic = config.get('gateway', 'topic')
-device_id = config.get('device', 'id')
+device_network = config.get('device', 'network')
 data_protocol = config.get('device', 'protocol')
+
+
+# 加载设备信息字典
+devices_info_file = "devices.txt"
+
+
+def load_devices_info_dict():
+    if os.path.exists(devices_info_file):
+        devices_file = open(devices_info_file, "r+")
+        content = devices_file.read()
+        devices_file.close()
+        try:
+            devices_info_dict.update(json.loads(content))
+        except Exception, e:
+            logger.error("devices.txt内容格式不正确")
+    else:
+        devices_file = open(devices_info_file, "w+")
+        devices_file.write("{}")
+        devices_file.close()
+    logger.debug("devices_info_dict加载结果%r" % devices_info_dict)
 
 
 def get_dict(url):
@@ -82,7 +108,7 @@ def publish_device_data(device_id, device_type, device_addr, device_port, device
 
     # MQTT发布
     publish.single(topic=gateway_topic,
-                   payload=device_msg,
+                   payload=device_msg.encode("utf-8"),
                    hostname=mqtt_server_ip,
                    port=mqtt_server_port)
     logger.info("向Topic(%s)发布消息：%s" % (gateway_topic, device_msg))
@@ -99,7 +125,7 @@ def process_mqtt():
         logger.info("Connected with result code " + str(rc))
         # Subscribing in on_connect() means that if we lose the connection and
         # reconnect then subscriptions will be renewed.
-        mqtt_client.subscribe(device_id)
+        mqtt_client.subscribe("%s/#" % device_network)
 
     # The callback for when a PUBLISH message is received from the server.
     def on_message(client, userdata, msg):
@@ -111,21 +137,24 @@ def process_mqtt():
             device_cmd = None
             logger.error("消息内容错误，%r" % msg.payload)
 
-        # 根据设备指令组装消息
-        value = device_cmd.get("value", None)
-        if value is None:
-            visit_url = url + device_cmd["resource_route"] + url_params
-        else:
-            visit_url = url + device_cmd["resource_route"] + url_params + "&value=" + value
+        # 根据topic确定设备
+        device_info = devices_info_dict.get(msg.topic, None)
+        # 对指令进行处理
+        if device_info is not None:
+            # 根据设备指令组装消息
+            visit_url = "http://" + device_info["device_addr"] + "/" + device_cmd["resource_route"]
+            result = get_dict(visit_url)
+            if len(result) > 0:
+                publish_device_data(device_info["device_id"],
+                                    device_info["device_type"],
+                                    device_info["device_addr"],
+                                    device_info["device_port"],
+                                    result)
+            else:
+                logger.error("访问url(%s)返回失败." % visit_url)
 
-        result = get_dict(visit_url)
-        if len(result) > 0:
-            publish_device_data(device_id, 0, device_id, 0, result)
-        else:
-            logger.error("访问url(%s)返回失败." % visit_url)
 
-
-    mqtt_client = mqtt.Client(client_id=gateway_topic)
+    mqtt_client = mqtt.Client(client_id=device_network)
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
 
@@ -140,17 +169,21 @@ def process_mqtt():
 
 if __name__ == "__main__":
 
+    # 加载设备
+    load_devices_info_dict()
+
     # 初始化mqtt监听
     mqtt_thread = threading.Thread(target=process_mqtt)
     mqtt_thread.start()
 
     # 发送设备信息
-    publish_device_data(device_id,
-                        0,
-                        device_id,
-                        0,
-                        data_protocol,
-                        "")
+    for device_id in devices_info_dict:
+        device_info = devices_info_dict[device_id]
+        publish_device_data(device_info["device_id"],
+                            device_info["device_type"],
+                            device_info["device_addr"],
+                            device_info["device_port"],
+                            "")
     while True:
         # 如果线程停止则创建
         if not mqtt_thread.is_alive():
