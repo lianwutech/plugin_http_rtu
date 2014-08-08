@@ -104,11 +104,18 @@ def get_dict(url):
 def publish_device_data(device_id, device_type, device_addr, device_port, device_data):
     # device_data: 16进制字符串
     # 组包
-    device_msg = "%s,%d,%s,%d,%s" % (device_id, device_type, device_addr, device_port, device_data)
+    device_msg = {
+        "device_id": device_id,
+        "device_type": device_type,
+        "device_addr": device_addr,
+        "device_port": device_port,
+        "data_protocol": data_protocol,
+        "data": device_data
+    }
 
     # MQTT发布
     publish.single(topic=gateway_topic,
-                   payload=device_msg.encode("utf-8"),
+                   payload=json.dumps(device_msg),
                    hostname=mqtt_server_ip,
                    port=mqtt_server_port)
     logger.info("向Topic(%s)发布消息：%s" % (gateway_topic, device_msg))
@@ -132,7 +139,8 @@ def process_mqtt():
         logger.info("收到数据消息" + msg.topic + " " + str(msg.payload))
         # 消息只包含device_cmd，为json字符串
         try:
-            device_cmd = loads(msg.payload)
+            cmd_msg = json.loads(msg.payload)
+            device_cmd = json.loads(cmd_msg["command"])
         except Exception, e:
             device_cmd = None
             logger.error("消息内容错误，%r" % msg.payload)
