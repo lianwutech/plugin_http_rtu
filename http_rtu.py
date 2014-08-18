@@ -109,7 +109,7 @@ def publish_device_data(device_id, device_type, device_addr, device_port, device
         "device_type": device_type,
         "device_addr": device_addr,
         "device_port": device_port,
-        "data_protocol": data_protocol,
+        "protocol": data_protocol,
         "data": device_data
     }
 
@@ -150,7 +150,7 @@ def process_mqtt():
         # 对指令进行处理
         if device_info is not None:
             # 根据设备指令组装消息
-            visit_url = "http://" + device_info["device_addr"] + "/" + device_cmd["resource_route"]
+            visit_url = "http://" + device_info["device_addr"] + ":" + device_info["device_port"] + "/" + device_cmd["resource_route"]
             result = get_dict(visit_url)
             if len(result) > 0:
                 publish_device_data(device_info["device_id"],
